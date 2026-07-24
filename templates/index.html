@@ -5,18 +5,25 @@
     <title>SCADA - Monitoreo de Generador</title>
     <style>
         body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .container { max-width: 850px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .metrics-panel { display: flex; justify-content: space-around; margin-top: 20px; flex-wrap: wrap; gap: 20px; }
         .card { background: #2c2c2c; padding: 20px; border-radius: 8px; width: 45%; box-sizing: border-box; transition: background 0.3s; }
-        .scada-container { display: flex; justify-content: center; align-items: center; gap: 40px; margin-top: 20px; background: #2c2c2c; padding: 20px; border-radius: 8px; }
-        .motor-box { background: #6c757d; padding: 30px; border-radius: 8px; font-weight: bold; color: #fff; transition: background 0.3s; }
+        .scada-container { display: flex; justify-content: center; align-items: center; gap: 30px; margin-top: 20px; background: #2c2c2c; padding: 20px; border-radius: 8px; flex-wrap: wrap; }
+        .motor-box { background: #6c757d; padding: 25px; border-radius: 8px; font-weight: bold; color: #fff; transition: background 0.3s; }
         
         /* Contenedor del Tanque de Combustible */
-        .tanque-wrapper { width: 80px; height: 160px; border: 3px solid #ccc; border-radius: 6px; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+        .tanque-wrapper { width: 70px; height: 140px; border: 3px solid #ccc; border-radius: 6px; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
         .tanque-nivel { width: 100%; height: 0%; transition: height 0.5s ease, background-color 0.5s ease; }
-        .tanque-label { font-size: 0.9rem; margin-top: 5px; color: #aaa; }
+        .label-component { font-size: 0.85rem; margin-top: 5px; color: #aaa; font-weight: bold; }
 
-        /* Estilo para la Alerta Intermitente */
+        /* Estilo para el Termómetro SVG y Mensaje */
+        .termometro-box { display: flex; flex-direction: column; align-items: center; }
+        .temp-svg { width: 60px; height: 140px; background: #111; border: 3px solid #ccc; border-radius: 30px; padding: 5px; box-sizing: border-box; }
+
+        /* Mensajes de Estado del Motor */
+        #temp-estado { font-size: 0.95rem; font-weight: bold; margin-top: 8px; min-height: 24px; }
+
+        /* Estilo para la Alerta General y Crítica */
         @keyframes parpadeo {
             0% { opacity: 1; }
             50% { opacity: 0.2; }
@@ -30,6 +37,10 @@
             animation: parpadeo 1s infinite;
             display: none; 
         }
+        .alerta-critica {
+            color: #dc3545;
+            animation: parpadeo 0.8s infinite;
+        }
     </style>
 </head>
 <body>
@@ -37,21 +48,40 @@
     <div class="container">
         <h2>Panel SCADA - Generador Principal</h2>
 
-        <!-- Mensaje de Alerta Intermitente -->
+        <!-- Mensaje de Alerta por Desconexión -->
         <div id="alerta-offline" class="alerta-desconexion">::: ALERTA ::: Terminal sin conexion</div>
 
         <!-- Esquema Visual SCADA -->
         <div class="scada-container">
+            <!-- Bloque Motor -->
             <div id="motor-box" class="motor-box">
                 MOTOR / CUMMINS
             </div>
+
+            <!-- Termómetro SVG -->
+            <div class="termometro-box">
+                <svg class="temp-svg" viewBox="0 0 40 120">
+                    <!-- Fondo de la columna interior -->
+                    <rect x="16" y="10" width="8" height="85" rx="4" fill="#222" />
+                    <!-- Columna de mercurio dinámica (crece desde abajo hacia arriba) -->
+                    <rect id="term-liquido" x="16" y="95" width="8" height="0" rx="4" fill="#007bff" />
+                    <!-- Bulbo inferior del termómetro -->
+                    <circle cx="20" cy="100" r="12" fill="#007bff" id="term-bulbo" />
+                </svg>
+                <div class="label-component">TEMPERATURA</div>
+            </div>
+
+            <!-- Tanque de Combustible -->
             <div>
                 <div class="tanque-wrapper">
                     <div id="tanque-nivel" class="tanque-nivel"></div>
                 </div>
-                <div class="tanque-label">COMBUSTIBLE</div>
+                <div class="label-component">COMBUSTIBLE</div>
             </div>
         </div>
+
+        <!-- Mensaje Dinámico del Estado de Temperatura -->
+        <div id="temp-estado">Esperando datos de temperatura...</div>
 
         <!-- Tarjetas de Métricas Numéricas -->
         <div class="metrics-panel">
@@ -68,7 +98,7 @@
 
     <script>
         let ultimaActualizacion = Date.now();
-        const TIEMPO_LIMITE_MS = 10000; // 10 segundos sin datos activa la alerta
+        const TIEMPO_LIMITE_MS = 10000; // 10 segundos sin datos activa alerta offline
 
         function actualizarDatos() {
             fetch('/api/estado/1')
@@ -78,10 +108,9 @@
                         return;
                     }
 
-                    // Registramos que hay comunicación activa
                     ultimaActualizacion = Date.now();
 
-                    // Ocultar alerta y restaurar colores normales
+                    // Restaurar interfaz desde estado offline
                     document.getElementById("alerta-offline").style.display = "none";
                     document.getElementById("motor-box").style.background = "#6c757d";
                     document.getElementById("card-temp").style.background = "#2c2c2c";
@@ -90,23 +119,67 @@
                     let temperatura = data.temperatura;
                     let combustible = data.nivel_combustible;
 
-                    // Mostrar valores en texto
+                    // Textos numéricos
                     document.getElementById("temp-val").innerText = temperatura.toFixed(2) + " °C";
                     document.getElementById("comb-val").innerText = combustible.toFixed(1) + " %";
 
-                    // Actualizar altura de la barra de combustible
+                    // --- LÓGICA DEL TANQUE DE COMBUSTIBLE ---
                     let barraTanque = document.getElementById("tanque-nivel");
                     barraTanque.style.height = combustible + "%";
 
-                    // Reglas de colores solicitadas
                     if (combustible <= 0) {
-                        barraTanque.style.backgroundColor = "transparent"; // Vacío
+                        barraTanque.style.backgroundColor = "transparent";
                     } else if (combustible > 0 && combustible <= 20) {
-                        barraTanque.style.backgroundColor = "#dc3545"; // Rojo (1% - 20%)
+                        barraTanque.style.backgroundColor = "#dc3545"; // Rojo
                     } else if (combustible > 20 && combustible <= 30) {
-                        barraTanque.style.backgroundColor = "#fd7e14"; // Naranja (21% - 30%)
+                        barraTanque.style.backgroundColor = "#fd7e14"; // Naranja
                     } else {
-                        barraTanque.style.backgroundColor = "#28a745"; // Verde (> 30%)
+                        barraTanque.style.backgroundColor = "#28a745"; // Verde
+                    }
+
+                    // --- LÓGICA DEL TERMÓMETRO Y ESTADOS DE TEMPERATURA ---
+                    let termLiquido = document.getElementById("term-liquido");
+                    let termBulbo = document.getElementById("term-bulbo");
+                    let lblEstado = document.getElementById("temp-estado");
+
+                    // Calcular altura de la barra del termómetro (Asumiendo rango visual de 0°C a 50°C)
+                    let tempMaxVisual = 50.0;
+                    let porcentajeTemp = Math.max(0, Math.min(100, (temperatura / tempMaxVisual) * 100));
+                    let alturaPx = (porcentajeTemp * 85) / 100; // 85px es el alto máximo de la columna
+
+                    // Actualizar altura del SVG (en SVG para crecer hacia arriba ajustamos 'y' y 'height')
+                    let yPos = 95 - alturaPx;
+                    termLiquido.setAttribute("y", yPos);
+                    termLiquido.setAttribute("height", alturaPx);
+
+                    // Reglas de rangos para la Temperatura
+                    if (temperatura <= 20) {
+                        let colorTemp = "#007bff"; // Azul
+                        termLiquido.setAttribute("fill", colorTemp);
+                        termBulbo.setAttribute("fill", colorTemp);
+                        lblEstado.className = "";
+                        lblEstado.style.color = "#007bff";
+                        lblEstado.innerText = "Motor en Frío";
+                    } else if (temperatura >= 21 && temperatura <= 30) {
+                        let colorTemp = "#28a745"; // Verde
+                        termLiquido.setAttribute("fill", colorTemp);
+                        termBulbo.setAttribute("fill", colorTemp);
+                        lblEstado.className = "";
+                        lblEstado.style.color = "#28a745";
+                        lblEstado.innerText = "Temp Normal";
+                    } else if (temperatura >= 31 && temperatura <= 37) {
+                        let colorTemp = "#fd7e14"; // Naranja
+                        termLiquido.setAttribute("fill", colorTemp);
+                        termBulbo.setAttribute("fill", colorTemp);
+                        lblEstado.className = "";
+                        lblEstado.style.color = "#fd7e14";
+                        lblEstado.innerText = "Motor Caliente";
+                    } else {
+                        let colorTemp = "#dc3545"; // Rojo
+                        termLiquido.setAttribute("fill", colorTemp);
+                        termBulbo.setAttribute("fill", colorTemp);
+                        lblEstado.className = "alerta-critica"; // Activa intermitencia y icono
+                        lblEstado.innerHTML = "⚠️ Sobrecalentamiento de Motor ⚠️";
                     }
                 })
                 .catch(error => console.error("Error al consultar API:", error));
@@ -116,7 +189,6 @@
             let tiempoTranscurrido = Date.now() - ultimaActualizacion;
 
             if (tiempoTranscurrido > TIEMPO_LIMITE_MS) {
-                // Activar Estado de Alerta por desconexión
                 document.getElementById("alerta-offline").style.display = "block";
                 document.getElementById("motor-box").style.background = "#444"; 
                 document.getElementById("card-temp").style.background = "#333";
@@ -126,15 +198,19 @@
                 barraTanque.style.height = "0%";
                 barraTanque.style.backgroundColor = "transparent";
 
+                let termLiquido = document.getElementById("term-liquido");
+                termLiquido.setAttribute("height", "0");
+                
                 document.getElementById("temp-val").innerText = "-- °C";
                 document.getElementById("comb-val").innerText = "-- %";
+                let lblEstado = document.getElementById("temp-estado");
+                lblEstado.className = "";
+                lblEstado.style.color = "#888";
+                lblEstado.innerText = "Sin señal del sensor";
             }
         }
 
-        // Consultar API cada 3 segundos
         setInterval(actualizarDatos, 3000);
-
-        // Revisar estado de conexión cada 1 segundo
         setInterval(comprobarConexion, 1000);
     </script>
 
