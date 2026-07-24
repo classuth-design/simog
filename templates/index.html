@@ -142,32 +142,30 @@
                     let termBulbo = document.getElementById("term-bulbo");
                     let lblEstado = document.getElementById("temp-estado");
 
-                    // Calcular altura de la barra del termómetro (Asumiendo rango visual de 0°C a 50°C)
                     let tempMaxVisual = 50.0;
                     let porcentajeTemp = Math.max(0, Math.min(100, (temperatura / tempMaxVisual) * 100));
-                    let alturaPx = (porcentajeTemp * 85) / 100; // 85px es el alto máximo de la columna
+                    let alturaPx = (porcentajeTemp * 85) / 100; 
 
-                    // Actualizar altura del SVG (en SVG para crecer hacia arriba ajustamos 'y' y 'height')
                     let yPos = 95 - alturaPx;
                     termLiquido.setAttribute("y", yPos);
                     termLiquido.setAttribute("height", alturaPx);
 
-                    // Reglas de rangos para la Temperatura
-                    if (temperatura <= 20) {
+                    // Reglas de rangos exactas y sin baches
+                    if (temperatura <= 20.0) {
                         let colorTemp = "#007bff"; // Azul
                         termLiquido.setAttribute("fill", colorTemp);
                         termBulbo.setAttribute("fill", colorTemp);
                         lblEstado.className = "";
                         lblEstado.style.color = "#007bff";
                         lblEstado.innerText = "Motor en Frío";
-                    } else if (temperatura >= 21 && temperatura <= 30) {
+                    } else if (temperatura > 20.0 && temperatura <= 30.0) {
                         let colorTemp = "#28a745"; // Verde
                         termLiquido.setAttribute("fill", colorTemp);
                         termBulbo.setAttribute("fill", colorTemp);
                         lblEstado.className = "";
                         lblEstado.style.color = "#28a745";
                         lblEstado.innerText = "Temp Normal";
-                    } else if (temperatura >= 31 && temperatura <= 37) {
+                    } else if (temperatura > 30.0 && temperatura <= 37.0) {
                         let colorTemp = "#fd7e14"; // Naranja
                         termLiquido.setAttribute("fill", colorTemp);
                         termBulbo.setAttribute("fill", colorTemp);
@@ -175,10 +173,10 @@
                         lblEstado.style.color = "#fd7e14";
                         lblEstado.innerText = "Motor Caliente";
                     } else {
-                        let colorTemp = "#dc3545"; // Rojo
+                        let colorTemp = "#dc3545"; // Rojo (> 37°)
                         termLiquido.setAttribute("fill", colorTemp);
                         termBulbo.setAttribute("fill", colorTemp);
-                        lblEstado.className = "alerta-critica"; // Activa intermitencia y icono
+                        lblEstado.className = "alerta-critica"; // Activa intermitencia e iconos
                         lblEstado.innerHTML = "⚠️ Sobrecalentamiento de Motor ⚠️";
                     }
                 })
