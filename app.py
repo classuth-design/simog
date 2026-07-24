@@ -2,6 +2,46 @@ from datetime import datetime
 import os
 from flask import Flask, jsonify, render_template, request
 import psycopg2
+import smtplib
+from email.message import EmailMessage
+
+# Configura aquí tu cuenta de correo remitente (ej. una cuenta de Gmail con Contraseña de Aplicación)
+EMAIL_ORIGEN = "tucorreo@gmail.com"
+EMAIL_PASSWORD = "tu_contraseña_de_aplicacion"
+EMAIL_DESTINO = "classuth@gmail.com"
+
+
+def enviar_alerta_correo(tipo_alerta, valor):
+  try:
+    msg = EmailMessage()
+    if tipo_alerta == "combustible":
+      msg["Subject"] = "🚨 ALERTA CRÍTICA: Nivel Muy Bajo de Combustible"
+      cuerpo = (
+          "Atención Administrador,\n\nEl sistema SCADA ha detectado un nivel muy"
+          f" bajo de combustible en el Generador Principal.\nPorcentaje"
+          f" actual: {valor}%\n\nPor favor, proceda a abastecer el depósito"
+          " inmediatamente."
+      )
+    elif tipo_alerta == "temperatura":
+      msg["Subject"] = "🔥 ALERTA CRÍTICA: Sobrecalentamiento de Motor"
+      cuerpo = (
+          "Atención Administrador,\n\nEl sistema SCADA ha detectado una"
+          " condición de sobrecalentamiento en el Motor"
+          f" Cummins.\nTemperatura actual: {valor}°C\n\nVerifique el sistema"
+          " de enfriamiento de inmediato."
+      )
+
+    msg["From"] = EMAIL_ORIGEN
+    msg["To"] = EMAIL_DESTINO
+    msg.set_content(cuerpo)
+
+    # Conexión al servidor SMTP de Gmail
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+      smtp.login(EMAIL_ORIGEN, EMAIL_PASSWORD)
+      smtp.send_message(msg)
+    print(f"Correo de alerta ({tipo_alerta}) enviado exitosamente.")
+  except Exception as e:
+    print(f"Error al enviar el correo de alerta: {e}")
 
 app = Flask(__name__)
 
