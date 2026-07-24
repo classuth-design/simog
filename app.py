@@ -1,38 +1,57 @@
+from email.message import EmailMessage
 import os
 import smtplib
-from email.message import EmailMessage
+import time
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-# Configuración de la base de datos (PostgreSQL en Render o local)
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-    "DATABASE_URL", "sqlite:///scada.db"
+# Configuración de la base de datos (PostgreSQL en Render u otra URI)
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL", "sqlite:///telemetria.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
+# Configuración de credenciales de correo (Variables de entorno o fijas)
+EMAIL_ORIGEN = os.environ.get("EMAIL_ORIGEN", "tucorreo@gmail.com")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "tu_contraseña_de_aplicacion")
+EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "destinatario@gmail.com")
 
-# Modelo de la base de datos para almacenar registros del SCADA
-class RegistroSCADA(db.Model):
-  __tablename__ = "registros"
+# Diccionarios para registrar el último momento en que se envió un correo por categoría
+ultimo_envio_correo = {"combustible": 0, "temperatura": 0}
+TIEMPO_ESPERA_CORREO = (
+    60  # 60 segundos (1 minuto) de espera entre cada correo idéntico
+)
+
+
+# Modelo de la Base de Datos para almacenar la telemetría
+class Telemetria(db.Model):
   id = db.Column(db.Integer, primary_key=True)
   temperatura = db.Column(db.Float, nullable=False)
-  nivel_combustible = db.Column(db.Float, nullable=False)
+  combustible = db.Column(db.Float, nullable=False)
+  conexion = db.Column(db.String(50), nullable=False)
   timestamp = db.Column(db.DateTime, server_default=db.func.now())
 
 
 with app.app_context():
   db.create_all()
 
-# Configuración de Correo para Alertas
-EMAIL_ORIGEN = os.getenv("EMAIL_ORIGEN", "classuth@gmail.com")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "fgzqiyohjeasdvsr")
-EMAIL_DESTINO = "classuth@gmail.com"
-
 
 def enviar_alerta_correo(tipo_alerta, valor):
+  tiempo_actual = time.time()
+
+  # Verificar si ya pasó 1 minuto desde el último correo de este tipo
+  if (
+      tiempo_actual - ultimo_envio_correo[tipo_alerta]
+      < TIEMPO_ESPERA_CORREO
+  ):
+    print(
+        f"Alerta de {tipo_alerta} omitida por temporizador de espera (Cooldown)."
+    )
+    return
+
   try:
     msg = EmailMessage()
     if tipo_alerta == "combustible":
@@ -59,63 +78,52 @@ def enviar_alerta_correo(tipo_alerta, valor):
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
       smtp.login(EMAIL_ORIGEN, EMAIL_PASSWORD)
       smtp.send_message(msg)
+
+    # Actualizar la hora del último envío exitoso
+    ultimo_envio_correo[tipo_alerta] = tiempo_actual
     print(f"Correo de alerta ({tipo_alerta}) enviado a {EMAIL_DESTINO}.")
+
   except Exception as e:
     print(f"Error al enviar el correo de alerta: {e}")
 
 
-# Ruta principal que sirve el panel web (index.html)
-@app.route("/")
-def index():
-  return render_template("index.html")
-
-
-# Ruta para recibir los datos enviados por monitor.py desde la Raspberry Pi
 @app.route("/api/datos", methods=["POST"])
 def recibir_datos():
-  data = request.json
+  data = request.get_json()
   if not data:
     return jsonify({"error": "No se recibieron datos JSON"}), 400
 
   temperatura = data.get("temperatura")
-  combustible = data.get("nivel_combustible")
+  combustible = data.get("combustible")
+  conexion = data.get("conexion", "Estable")
 
-  if temperatura is None or combustible is None:
-    return jsonify({"error": "Faltan parámetros de temperatura o combustible"}), 400
-
-  # Validaciones para disparo automático de correos electrónicos
-  if combustible <= 20.0:
-    enviar_alerta_correo("combustible", combustible)
-
-  if temperatura > 37.0:
-    enviar_alerta_correo("temperatura", temperatura)
-
-  # Guardar el registro en la base de datos
-  nuevo_registro = RegistroSCADA(
-      temperatura=temperatura, nivel_combustible=combustible
+  # Guardar en base de datos
+  nuevo_registro = Telemetria(
+      temperatura=temperatura, combustible=combustible, conexion=conexion
   )
   db.session.add(nuevo_registro)
   db.session.commit()
 
-  return jsonify({"status": "success", "mensaje": "Datos guardados"}), 201
+  # Evaluar umbrales críticos para activar alertas mediante el sistema de cooldown
+  if combustible is not None and float(combustible) < 15.0:
+    enviar_alerta_correo("combustible", combustible)
 
+  if temperatura is not None and float(temperatura) > 85.0:
+    enviar_alerta_correo("temperatura", temperatura)
 
-# Ruta que consulta el último estado disponible para actualizar la interfaz web en tiempo real
-@app.route("/api/estado/<int:id_equipo>", methods=["GET"])
-def obtener_estado(id_equipo):
-  # Buscamos el registro más reciente en la base de datos
-  ultimo_registro = (
-      RegistroSCADA.query.order_by(RegistroSCADA.id.desc()).first()
+  return (
+      jsonify(
+          {"mensaje": "Datos recibidos y procesados correctamente", "status": 201}
+      ),
+      201,
   )
 
-  if not ultimo_registro:
-    return jsonify({"error": "No hay registros disponibles"}), 404
 
-  return jsonify({
-      "temperatura": ultimo_registro.temperatura,
-      "nivel_combustible": ultimo_registro.nivel_combustible,
-      "timestamp": ultimo_registro.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-  })
+@app.route("/")
+def index():
+  # Obtener el último registro para mostrarlo en el panel web
+  ultimo = Telemetria.query.order_by(Telemetria.id.desc()).first()
+  return render_template("index.html", telemetria=ultimo)
 
 
 if __name__ == "__main__":
