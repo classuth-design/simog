@@ -88,14 +88,22 @@ def enviar_alerta_correo(tipo_alerta, valor):
 
 
 @app.route("/api/datos", methods=["POST"])
+
 def recibir_datos():
   data = request.get_json()
   if not data:
     return jsonify({"error": "No se recibieron datos JSON"}), 400
 
   temperatura = data.get("temperatura")
-  combustible = data.get("combustible")
+  # CAMBIA "combustible" POR "nivel_combustible" para que coincida con monitor.py:
+  combustible = data.get("nivel_combustible")
   conexion = data.get("conexion", "Estable")
+
+  if temperatura is None or combustible is None:
+    return (
+        jsonify({"error": "Faltan parámetros de temperatura o combustible"}),
+        400,
+    )
 
   # Guardar en base de datos
   nuevo_registro = Telemetria(
@@ -105,10 +113,10 @@ def recibir_datos():
   db.session.commit()
 
   # Evaluar umbrales críticos para activar alertas mediante el sistema de cooldown
-  if combustible is not None and float(combustible) < 15.0:
+  if float(combustible) <= 20.0:
     enviar_alerta_correo("combustible", combustible)
 
-  if temperatura is not None and float(temperatura) > 85.0:
+  if float(temperatura) > 37.0:
     enviar_alerta_correo("temperatura", temperatura)
 
   return (
@@ -117,7 +125,6 @@ def recibir_datos():
       ),
       201,
   )
-
 
 @app.route("/")
 def index():
