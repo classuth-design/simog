@@ -67,20 +67,20 @@
     </div>
 
     <script>
-        // Variable para registrar la última vez (en milisegundos) que se recibieron datos
+        // Variable para registrar la última vez (en milisegundos) que se recibieron datos válidos
         let ultimaActualizacion = Date.now();
-        const TIEMPO_LIMITE_MS = 12000; // 12 segundos sin recibir datos = Sin Conexión
+        const TIEMPO_LIMITE_MS = 12000; // 12 segundos sin respuesta válida = Sin Conexión
 
         function actualizarDatos() {
             fetch('/api/estado/1')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.error || !data.timestamp) {
+                    // Si la API responde con un error o no trae temperatura, salimos
+                    if (data.error || data.temperatura === undefined) {
                         return;
                     }
 
-                    // Opcional: Validar si el timestamp del servidor cambió o simplemente registrar que hubo respuesta
-                    // Aquí asumimos que si la API responde con éxito, actualizamos el tiempo de vida
+                    // ¡Datos recibidos con éxito! Actualizamos el cronómetro de conexión
                     ultimaActualizacion = Date.now();
 
                     // Ocultar alerta y restaurar elementos a color normal
@@ -96,18 +96,18 @@
                     document.getElementById("temp-val").innerText = temperatura.toFixed(2) + " °C";
                     document.getElementById("comb-val").innerText = combustible.toFixed(1) + " %";
 
-                    // Lógica del tanque
+                    // Lógica de colores del tanque
                     let barraTanque = document.getElementById("tanque-nivel");
                     barraTanque.style.height = combustible + "%";
 
                     if (combustible <= 0) {
                         barraTanque.style.backgroundColor = "transparent";
                     } else if (combustible > 0 && combustible <= 20) {
-                        barraTanque.style.backgroundColor = "#dc3545";
+                        barraTanque.style.backgroundColor = "#dc3545"; // Rojo
                     } else if (combustible > 20 && combustible <= 30) {
-                        barraTanque.style.backgroundColor = "#fd7e14";
+                        barraTanque.style.backgroundColor = "#fd7e14"; // Naranja
                     } else {
-                        barraTanque.style.backgroundColor = "#28a745";
+                        barraTanque.style.backgroundColor = "#28a745"; // Verde
                     }
                 })
                 .catch(error => console.error("Error al consultar API:", error));
@@ -120,16 +120,14 @@
             if (tiempoTranscurrido > TIEMPO_LIMITE_MS) {
                 // Estado Sin Conexión
                 document.getElementById("alerta-offline").style.display = "block";
-                document.getElementById("motor-box").style.background = "#444"; // Gris apagado
+                document.getElementById("motor-box").style.background = "#444"; 
                 document.getElementById("card-temp").style.background = "#333";
                 document.getElementById("card-comb").style.background = "#333";
                 
-                // Vaciar tanque visualmente y ponerlo gris
                 let barraTanque = document.getElementById("tanque-nivel");
                 barraTanque.style.height = "0%";
                 barraTanque.style.backgroundColor = "transparent";
 
-                // Poner textos en "--"
                 document.getElementById("temp-val").innerText = "-- °C";
                 document.getElementById("comb-val").innerText = "-- %";
             }
