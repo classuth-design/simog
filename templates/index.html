@@ -11,18 +11,6 @@
         .scada-container { display: flex; justify-content: center; align-items: center; gap: 30px; margin-top: 20px; background: #2c2c2c; padding: 20px; border-radius: 8px; flex-wrap: wrap; }
         .motor-box { background: #6c757d; padding: 25px; border-radius: 8px; font-weight: bold; color: #fff; transition: background 0.3s; }
         
-        /* Panel de Control de Botones */
-        .control-panel { margin-top: 20px; background: #2c2c2c; padding: 15px; border-radius: 8px; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
-        .btn-control { padding: 10px 20px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: #fff; transition: opacity 0.2s; }
-        .btn-control:hover { opacity: 0.8; }
-        .btn-on { background: #28a745; }
-        .btn-off { background: #dc3545; }
-        .btn-auto { background: #17a2b8; }
-
-        /* Panel de Log de Eventos */
-        .log-panel { margin-top: 20px; background: #111; padding: 15px; border-radius: 8px; text-align: left; max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; border: 1px solid #333; }
-        .log-panel h4 { margin: 0 0 8px 0; color: #aaa; text-align: center; font-family: Arial, sans-serif; }
-
         /* Contenedor del Tanque de Combustible */
         .tanque-wrapper { width: 70px; height: 140px; border: 3px solid #ccc; border-radius: 6px; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
         .tanque-nivel { width: 100%; height: 0%; transition: height 0.5s ease, background-color 0.5s ease; }
@@ -67,8 +55,7 @@
         <div class="scada-container">
             <!-- Bloque Motor -->
             <div id="motor-box" class="motor-box">
-                MOTOR / CUMMINS<br>
-                <span id="motor-estado-txt" style="font-size: 0.8rem; font-weight: normal;">DETENIDO</span>
+                MOTOR / CUMMINS
             </div>
 
             <!-- Termómetro SVG -->
@@ -93,13 +80,6 @@
         <!-- Mensaje Dinámico del Estado de Temperatura -->
         <div id="temp-estado">Esperando datos de temperatura...</div>
 
-        <!-- Panel de Control Manual / Automático -->
-        <div class="control-panel">
-            <button class="btn-control btn-on" onclick="enviarComando('START')">ARRANCAR</button>
-            <button class="btn-control btn-off" onclick="enviarComando('STOP')">DETENER</button>
-            <button class="btn-control btn-auto" onclick="enviarComando('AUTO')">MODO AUTO</button>
-        </div>
-
         <!-- Tarjetas de Métricas Numéricas -->
         <div class="metrics-panel">
             <div class="card" id="card-temp">
@@ -111,40 +91,11 @@
                 <h2 id="comb-val">-- %</h2>
             </div>
         </div>
-
-        <!-- Log de Eventos -->
-        <div class="log-panel">
-            <h4>Registro de Eventos</h4>
-            <div id="log-content">[SYSTEM] Interfaz SCADA inicializada correctamente.</div>
-        </div>
     </div>
 
     <script>
         let ultimaActualizacion = Date.now();
         const TIEMPO_LIMITE_MS = 10000; // 10 segundos sin datos activa alerta offline
-
-        function registrarLog(mensaje) {
-            let logDiv = document.getElementById("log-content");
-            let hora = new Date().toLocaleTimeString();
-            logDiv.innerHTML += `<br>[${hora}] ${mensaje}`;
-            logDiv.parentElement.scrollTop = logDiv.parentElement.scrollHeight;
-        }
-
-        function enviarComando(accion) {
-            fetch('/api/control/1', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ comando: accion })
-            })
-            .then(response => response.json())
-            .then(data => {
-                registrarLog(`Comando enviado: ${accion} - Respuesta: OK`);
-            })
-            .catch(error => {
-                registrarLog(`Error al enviar comando ${accion}`);
-                console.error("Error en control:", error);
-            });
-        }
 
         function actualizarDatos() {
             fetch('/api/estado/1')
@@ -158,23 +109,12 @@
 
                     // Restaurar interfaz desde estado offline
                     document.getElementById("alerta-offline").style.display = "none";
+                    document.getElementById("motor-box").style.background = "#6c757d";
                     document.getElementById("card-temp").style.background = "#2c2c2c";
                     document.getElementById("card-comb").style.background = "#2c2c2c";
 
                     let temperatura = data.temperatura;
                     let combustible = data.nivel_combustible;
-                    let motorEncendido = data.estado_motor !== undefined ? data.estado_motor : (temperatura > 22.0);
-
-                    // Actualizar estado visual del motor
-                    let motorBox = document.getElementById("motor-box");
-                    let motorTxt = document.getElementById("motor-estado-txt");
-                    if (motorEncendido) {
-                        motorBox.style.background = "#28a745";
-                        motorTxt.innerText = "EN MARCHA";
-                    } else {
-                        motorBox.style.background = "#6c757d";
-                        motorTxt.innerText = "DETENIDO";
-                    }
 
                     // Textos numéricos
                     document.getElementById("temp-val").innerText = temperatura.toFixed(2) + " °C";
