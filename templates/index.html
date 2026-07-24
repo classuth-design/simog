@@ -9,7 +9,7 @@
         .metrics-panel { display: flex; justify-content: space-around; margin-top: 20px; flex-wrap: wrap; gap: 20px; }
         .card { background: #2c2c2c; padding: 20px; border-radius: 8px; width: 45%; box-sizing: border-box; transition: background 0.3s; }
         .scada-container { display: flex; justify-content: center; align-items: center; gap: 40px; margin-top: 20px; background: #2c2c2c; padding: 20px; border-radius: 8px; }
-        .motor-box { background: #6c757d; padding: 30px; border-radius: 8px; font-weight: bold; color: #fff; }
+        .motor-box { background: #6c757d; padding: 30px; border-radius: 8px; font-weight: bold; color: #fff; transition: background 0.3s; }
         
         /* Contenedor del Tanque de Combustible */
         .tanque-wrapper { width: 80px; height: 160px; border: 3px solid #ccc; border-radius: 6px; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
@@ -28,7 +28,7 @@
             font-size: 1.1rem;
             margin-bottom: 15px;
             animation: parpadeo 1s infinite;
-            display: none; /* Oculto por defecto */
+            display: none; 
         }
     </style>
 </head>
@@ -67,23 +67,21 @@
     </div>
 
     <script>
-        // Variable para registrar la última vez (en milisegundos) que se recibieron datos válidos
         let ultimaActualizacion = Date.now();
-        const TIEMPO_LIMITE_MS = 12000; // 12 segundos sin respuesta válida = Sin Conexión
+        const TIEMPO_LIMITE_MS = 10000; // 10 segundos sin datos activa la alerta
 
         function actualizarDatos() {
             fetch('/api/estado/1')
                 .then(response => response.json())
                 .then(data => {
-                    // Si la API responde con un error o no trae temperatura, salimos
                     if (data.error || data.temperatura === undefined) {
                         return;
                     }
 
-                    // ¡Datos recibidos con éxito! Actualizamos el cronómetro de conexión
+                    // Registramos que hay comunicación activa
                     ultimaActualizacion = Date.now();
 
-                    // Ocultar alerta y restaurar elementos a color normal
+                    // Ocultar alerta y restaurar colores normales
                     document.getElementById("alerta-offline").style.display = "none";
                     document.getElementById("motor-box").style.background = "#6c757d";
                     document.getElementById("card-temp").style.background = "#2c2c2c";
@@ -92,33 +90,33 @@
                     let temperatura = data.temperatura;
                     let combustible = data.nivel_combustible;
 
-                    // Actualizar textos
+                    // Mostrar valores en texto
                     document.getElementById("temp-val").innerText = temperatura.toFixed(2) + " °C";
                     document.getElementById("comb-val").innerText = combustible.toFixed(1) + " %";
 
-                    // Lógica de colores del tanque
+                    // Actualizar altura de la barra de combustible
                     let barraTanque = document.getElementById("tanque-nivel");
                     barraTanque.style.height = combustible + "%";
 
+                    // Reglas de colores solicitadas
                     if (combustible <= 0) {
-                        barraTanque.style.backgroundColor = "transparent";
+                        barraTanque.style.backgroundColor = "transparent"; // Vacío
                     } else if (combustible > 0 && combustible <= 20) {
-                        barraTanque.style.backgroundColor = "#dc3545"; // Rojo
+                        barraTanque.style.backgroundColor = "#dc3545"; // Rojo (1% - 20%)
                     } else if (combustible > 20 && combustible <= 30) {
-                        barraTanque.style.backgroundColor = "#fd7e14"; // Naranja
+                        barraTanque.style.backgroundColor = "#fd7e14"; // Naranja (21% - 30%)
                     } else {
-                        barraTanque.style.backgroundColor = "#28a745"; // Verde
+                        barraTanque.style.backgroundColor = "#28a745"; // Verde (> 30%)
                     }
                 })
                 .catch(error => console.error("Error al consultar API:", error));
         }
 
-        // Función que revisa constantemente si la Raspberry dejó de transmitir
         function comprobarConexion() {
             let tiempoTranscurrido = Date.now() - ultimaActualizacion;
 
             if (tiempoTranscurrido > TIEMPO_LIMITE_MS) {
-                // Estado Sin Conexión
+                // Activar Estado de Alerta por desconexión
                 document.getElementById("alerta-offline").style.display = "block";
                 document.getElementById("motor-box").style.background = "#444"; 
                 document.getElementById("card-temp").style.background = "#333";
@@ -133,10 +131,10 @@
             }
         }
 
-        // Ejecutar peticiones cada 3 segundos
+        // Consultar API cada 3 segundos
         setInterval(actualizarDatos, 3000);
 
-        // Revisar el estado de conexión cada 1 segundo
+        // Revisar estado de conexión cada 1 segundo
         setInterval(comprobarConexion, 1000);
     </script>
 
