@@ -20,8 +20,8 @@
         .termometro-box { display: flex; flex-direction: column; align-items: center; }
         .temp-svg { width: 60px; height: 140px; background: #111; border: 3px solid #ccc; border-radius: 30px; padding: 5px; box-sizing: border-box; }
 
-        /* Mensajes de Estado del Motor */
-        #temp-estado { font-size: 0.95rem; font-weight: bold; margin-top: 8px; min-height: 24px; }
+        /* Mensajes de Estado */
+        #temp-estado, #comb-estado { font-size: 0.95rem; font-weight: bold; margin-top: 8px; min-height: 24px; }
 
         /* Estilo para la Alerta General y Crítica */
         @keyframes parpadeo {
@@ -77,8 +77,11 @@
             </div>
         </div>
 
-        <!-- Mensaje Dinámico del Estado de Temperatura -->
-        <div id="temp-estado">Esperando datos de temperatura...</div>
+        <!-- Mensajes Dinámicos del Estado -->
+        <div style="display: flex; justify-content: space-around; margin-top: 10px;">
+            <div id="temp-estado" style="width: 50%;">Esperando datos de temperatura...</div>
+            <div id="comb-estado" style="width: 50%;">Esperando datos de combustible...</div>
+        </div>
 
         <!-- Tarjetas de Métricas Numéricas -->
         <div class="metrics-panel">
@@ -120,18 +123,33 @@
                     document.getElementById("temp-val").innerText = temperatura.toFixed(2) + " °C";
                     document.getElementById("comb-val").innerText = combustible.toFixed(1) + " %";
 
-                    // --- LÓGICA DEL TANQUE DE COMBUSTIBLE ---
+                    // --- LÓGICA DEL TANQUE DE COMBUSTIBLE Y SUS ESTADOS ---
                     let barraTanque = document.getElementById("tanque-nivel");
-                    barraTanque.style.height = combustible + "%";
+                    let lblCombEstado = document.getElementById("comb-estado");
+                    
+                    // Altura visual mínima del 4% en 0% para que se mantenga visible y pintada de rojo crítico
+                    let alturaVisual = combustible <= 0 ? 4 : combustible;
+                    barraTanque.style.height = alturaVisual + "%";
 
                     if (combustible <= 0) {
-                        barraTanque.style.backgroundColor = "transparent";
+                        barraTanque.style.backgroundColor = "#dc3545";
+                        lblCombEstado.className = "alerta-critica";
+                        lblCombEstado.innerHTML = "⚠️ Tanque Vacío / Reserva ⚠️";
                     } else if (combustible > 0 && combustible <= 20) {
                         barraTanque.style.backgroundColor = "#dc3545"; // Rojo
+                        lblCombEstado.className = "";
+                        lblCombEstado.style.color = "#dc3545";
+                        lblCombEstado.innerText = "Combustible Bajo";
                     } else if (combustible > 20 && combustible <= 30) {
                         barraTanque.style.backgroundColor = "#fd7e14"; // Naranja
+                        lblCombEstado.className = "";
+                        lblCombEstado.style.color = "#fd7e14";
+                        lblCombEstado.innerText = "Combustible Moderado";
                     } else {
                         barraTanque.style.backgroundColor = "#28a745"; // Verde
+                        lblCombEstado.className = "";
+                        lblCombEstado.style.color = "#28a745";
+                        lblCombEstado.innerText = "Combustible Normal";
                     }
 
                     // --- LÓGICA DEL TERMÓMETRO Y ESTADOS DE TEMPERATURA ---
@@ -198,10 +216,16 @@
                 
                 document.getElementById("temp-val").innerText = "-- °C";
                 document.getElementById("comb-val").innerText = "-- %";
+                
                 let lblEstado = document.getElementById("temp-estado");
                 lblEstado.className = "";
                 lblEstado.style.color = "#888";
                 lblEstado.innerText = "Sin señal del sensor";
+
+                let lblCombEstado = document.getElementById("comb-estado");
+                lblCombEstado.className = "";
+                lblCombEstado.style.color = "#888";
+                lblCombEstado.innerText = "Sin señal del sensor";
             }
         }
 
