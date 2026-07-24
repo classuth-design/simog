@@ -7,7 +7,7 @@
         body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
         .container { max-width: 800px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .metrics-panel { display: flex; justify-content: space-around; margin-top: 20px; flex-wrap: wrap; gap: 20px; }
-        .card { background: #2c2c2c; padding: 20px; border-radius: 8px; width: 45%; box-sizing: border-box; }
+        .card { background: #2c2c2c; padding: 20px; border-radius: 8px; width: 45%; box-sizing: border-box; transition: background 0.3s; }
         .scada-container { display: flex; justify-content: center; align-items: center; gap: 40px; margin-top: 20px; background: #2c2c2c; padding: 20px; border-radius: 8px; }
         .motor-box { background: #6c757d; padding: 30px; border-radius: 8px; font-weight: bold; color: #fff; }
         
@@ -15,6 +15,21 @@
         .tanque-wrapper { width: 80px; height: 160px; border: 3px solid #ccc; border-radius: 6px; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
         .tanque-nivel { width: 100%; height: 0%; transition: height 0.5s ease, background-color 0.5s ease; }
         .tanque-label { font-size: 0.9rem; margin-top: 5px; color: #aaa; }
+
+        /* Estilo para la Alerta Intermitente */
+        @keyframes parpadeo {
+            0% { opacity: 1; }
+            50% { opacity: 0.2; }
+            100% { opacity: 1; }
+        }
+        .alerta-desconexion {
+            color: #dc3545;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+            animation: parpadeo 1s infinite;
+            display: none; /* Oculto por defecto */
+        }
     </style>
 </head>
 <body>
@@ -22,14 +37,16 @@
     <div class="container">
         <h2>Panel SCADA - Generador Principal</h2>
 
+        <!-- Mensaje de Alerta Intermitente -->
+        <div id="alerta-offline" class="alerta-desconexion">::: ALERTA ::: Terminal sin conexion</div>
+
         <!-- Esquema Visual SCADA -->
         <div class="scada-container">
-            <div class="motor-box">
+            <div id="motor-box" class="motor-box">
                 MOTOR / CUMMINS
             </div>
             <div>
                 <div class="tanque-wrapper">
-                    <!-- Barra de nivel dinámica -->
                     <div id="tanque-nivel" class="tanque-nivel"></div>
                 </div>
                 <div class="tanque-label">COMBUSTIBLE</div>
@@ -38,11 +55,11 @@
 
         <!-- Tarjetas de Métricas Numéricas -->
         <div class="metrics-panel">
-            <div class="card">
+            <div class="card" id="card-temp">
                 <h3>Temperatura</h3>
                 <h2 id="temp-val">-- °C</h2>
             </div>
-            <div class="card">
+            <div class="card" id="card-comb">
                 <h3>Combustible</h3>
                 <h2 id="comb-val">-- %</h2>
             </div>
@@ -50,43 +67,79 @@
     </div>
 
     <script>
+        // Variable para registrar la última vez (en milisegundos) que se recibieron datos
+        let ultimaActualizacion = Date.now();
+        const TIEMPO_LIMITE_MS = 12000; // 12 segundos sin recibir datos = Sin Conexión
+
         function actualizarDatos() {
-            // Consulta a la API Flask para obtener el último estado del generador ID 1
             fetch('/api/estado/1')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.error) {
-                        console.log("Sin datos aún");
+                    if (data.error || !data.timestamp) {
                         return;
                     }
+
+                    // Opcional: Validar si el timestamp del servidor cambió o simplemente registrar que hubo respuesta
+                    // Aquí asumimos que si la API responde con éxito, actualizamos el tiempo de vida
+                    ultimaActualizacion = Date.now();
+
+                    // Ocultar alerta y restaurar elementos a color normal
+                    document.getElementById("alerta-offline").style.display = "none";
+                    document.getElementById("motor-box").style.background = "#6c757d";
+                    document.getElementById("card-temp").style.background = "#2c2c2c";
+                    document.getElementById("card-comb").style.background = "#2c2c2c";
 
                     let temperatura = data.temperatura;
                     let combustible = data.nivel_combustible;
 
-                    // Actualizar textos en pantalla
+                    // Actualizar textos
                     document.getElementById("temp-val").innerText = temperatura.toFixed(2) + " °C";
                     document.getElementById("comb-val").innerText = combustible.toFixed(1) + " %";
 
-                    // Lógica de colores y llenado del tanque según los rangos solicitados
+                    // Lógica del tanque
                     let barraTanque = document.getElementById("tanque-nivel");
                     barraTanque.style.height = combustible + "%";
 
                     if (combustible <= 0) {
-                        barraTanque.style.backgroundColor = "transparent"; // Vacío
+                        barraTanque.style.backgroundColor = "transparent";
                     } else if (combustible > 0 && combustible <= 20) {
-                        barraTanque.style.backgroundColor = "#dc3545"; // Rojo (1% - 20%)
+                        barraTanque.style.backgroundColor = "#dc3545";
                     } else if (combustible > 20 && combustible <= 30) {
-                        barraTanque.style.backgroundColor = "#fd7e14"; // Naranja (21% - 30%)
+                        barraTanque.style.backgroundColor = "#fd7e14";
                     } else {
-                        barraTanque.style.backgroundColor = "#28a745"; // Verde (> 30%)
+                        barraTanque.style.backgroundColor = "#28a745";
                     }
                 })
-                .catch(error => console.error("Error al obtener telemetría:", error));
+                .catch(error => console.error("Error al consultar API:", error));
         }
 
-        // Ejecutar inmediatamente y luego actualizar cada 3 segundos
-        actualizarDatos();
+        // Función que revisa constantemente si la Raspberry dejó de transmitir
+        function comprobarConexion() {
+            let tiempoTranscurrido = Date.now() - ultimaActualizacion;
+
+            if (tiempoTranscurrido > TIEMPO_LIMITE_MS) {
+                // Estado Sin Conexión
+                document.getElementById("alerta-offline").style.display = "block";
+                document.getElementById("motor-box").style.background = "#444"; // Gris apagado
+                document.getElementById("card-temp").style.background = "#333";
+                document.getElementById("card-comb").style.background = "#333";
+                
+                // Vaciar tanque visualmente y ponerlo gris
+                let barraTanque = document.getElementById("tanque-nivel");
+                barraTanque.style.height = "0%";
+                barraTanque.style.backgroundColor = "transparent";
+
+                // Poner textos en "--"
+                document.getElementById("temp-val").innerText = "-- °C";
+                document.getElementById("comb-val").innerText = "-- %";
+            }
+        }
+
+        // Ejecutar peticiones cada 3 segundos
         setInterval(actualizarDatos, 3000);
+
+        // Revisar el estado de conexión cada 1 segundo
+        setInterval(comprobarConexion, 1000);
     </script>
 
 </body>
