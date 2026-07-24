@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>SCADA - Monitoreo de Generador</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .metrics { display: flex; justify-content: space-around; margin-top: 20px; font-size: 1.2rem; }
+        .card { background: #2c2c2c; padding: 15px; border-radius: 8px; width: 40%; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Panel SCADA - Generador Principal</h2>
+        
+        <!-- SVG Animado del Generador -->
+        <svg viewBox="0 0 500 350" width="100%" height="300px">
+            <!-- Chasis del Generador -->
+            <rect x="50" y="100" width="400" height="200" rx="15" fill="#333" stroke="#555" stroke-width="4"/>
+            
+            <!-- Bloque de Motor (Cambia de color según temperatura) -->
+            <rect id="motor-block" x="80" y="130" width="180" height="120" rx="10" fill="#7f8c8d" stroke="#2c3e50" stroke-width="2"/>
+            <text x="170" y="195" fill="#fff" font-size="14" text-anchor="middle">MOTOR / CUMMINS</text>
+
+            <!-- Depósito de Combustible (Altura sincronizada con ultrasonido) -->
+            <rect x="300" y="130" width="120" height="140" fill="#222" stroke="#bdc3c7" stroke-width="3" rx="5"/>
+            <!-- Nivel líquido dentro del tanque -->
+            <rect id="fuel-liquid" x="302" y="170" width="116" height="98" fill="#e67e22" rx="3"/>
+            <text x="360" y="205" fill="#fff" font-size="14" font-weight="bold" text-anchor="middle" id="fuel-text">0%</text>
+            <text x="360" y="115" fill="#bdc3c7" font-size="12" text-anchor="middle">COMBUSTIBLE</text>
+        </svg>
+
+        <div class="metrics">
+            <div class="card">
+                <h3>Temperatura</h3>
+                <p id="temp-val">-- °C</p>
+            </div>
+            <div class="card">
+                <h3>Combustible</h3>
+                <p id="fuel-val">-- %</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function actualizarDatos() {
+            try {
+                let response = await fetch('/api/estado/1');
+                let data = await response.json();
+                
+                if(data.temperatura !== undefined) {
+                    // Actualizar textos
+                    document.getElementById('temp-val').innerText = data.temperatura.toFixed(2) + " °C";
+                    document.getElementById('fuel-val').innerText = data.nivel_combustible.toFixed(1) + " %";
+
+                    // Actualizar altura del tanque SVG (Tanque y = 130 hasta 270 -> altura max 140px)
+                    let fuelHeight = (data.nivel_combustible / 100) * 136;
+                    let fuelY = 270 - fuelHeight;
+                    let fuelRect = document.getElementById('fuel-liquid');
+                    fuelRect.setAttribute('y', fuelY);
+                    fuelRect.setAttribute('height', fuelHeight);
+                    document.getElementById('fuel-text').innerText = data.nivel_combustible.toFixed(0) + "%";
+
+                    // Cambiar color del motor según temperatura
+                    let motor = document.getElementById('motor-block');
+                    let t = data.temperatura;
+                    if (t < 15) {
+                        motor.setAttribute('fill', '#3498db'); // Azul: Muy frío
+                    } else if (t >= 15 && t <= 45) {
+                        motor.setAttribute('fill', '#7f8c8d'); // Gris: Temp normal
+                    } else if (t > 45 && t <= 75) {
+                        motor.setAttribute('fill', '#e67e22'); // Naranja: Menos caliente
+                    } else {
+                        motor.setAttribute('fill', '#e74c3c'); // Rojo: Muy caliente
+                    }
+                }
+            } catch (err) {
+                console.error("Error al obtener estado:", err);
+            }
+        }
+
+        setInterval(actualizarDatos, 2000);
+        actualizarDatos();
+    </script>
+</body>
+</html>
