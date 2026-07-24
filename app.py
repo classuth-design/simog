@@ -1,6 +1,7 @@
 from email.message import EmailMessage
 import os
 import smtplib
+import threading
 import time
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
@@ -37,14 +38,8 @@ with app.app_context():
   db.create_all()
 
 
-def enviar_alerta_correo(tipo_alerta, valor):
-  tiempo_actual = time.time()
-  if (
-      tiempo_actual - ultimo_envio_correo[tipo_alerta]
-      < TIEMPO_ESPERA_CORREO
-  ):
-    return
-
+def _ejecutar_envio_correo(tipo_alerta, valor, origen, password, destino):
+  """Función interna que se ejecuta en segundo plano para no congelar Flask"""
   try:
     msg = EmailMessage()
     if tipo_alerta == "combustible":
@@ -64,17 +59,42 @@ def enviar_alerta_correo(tipo_alerta, valor):
           " de enfriamiento de inmediato."
       )
 
-    msg["From"] = EMAIL_ORIGEN
-    msg["To"] = EMAIL_DESTINO
+    msg["From"] = origen
+    msg["To"] = destino
     msg.set_content(cuerpo)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-      smtp.login(EMAIL_ORIGEN, EMAIL_PASSWORD)
+      smtp.login(origen, password)
       smtp.send_message(msg)
-
-    ultimo_envio_correo[tipo_alerta] = tiempo_actual
+    print(f"Correo de alerta ({tipo_alerta}) enviado exitosamente en segundo plano.")
   except Exception as e:
-    print(f"Error al enviar el correo de alerta: {e}")
+    print(f"Error al enviar el correo en segundo plano: {e}")
+
+
+def enviar_alerta_correo(tipo_alerta, valor):
+  tiempo_actual = time.time()
+  if (
+      tiempo_actual - ultimo_envio_correo[tipo_alerta]
+      < TIEMPO_ESPERA_CORREO
+  ):
+    return
+
+  # Actualizar la hora inmediatamente para respetar el cooldown
+  ultimo_envio_correo[tipo_alerta] = tiempo_actual
+
+  # Lanzar el envío de correo en un hilo separado (Evita el bloqueo de Flask y el Timeout)
+  hilo = threading.Thread(
+      target=_ejecutar_envio_correo,
+      args=(
+          tipo_alerta,
+          valor,
+          EMAIL_ORIGEN,
+          EMAIL_PASSWORD,
+          EMAIL_DESTINO,
+      ),
+  )
+  hilo.daemon = True
+  hilo.start()
 
 
 @app.route("/api/datos", methods=["POST"])
@@ -102,6 +122,7 @@ def recibir_datos():
     db.session.add(nuevo_registro)
     db.session.commit()
 
+    # Evaluar umbrales (ahora disparan el hilo sin bloquear la respuesta HTTP)
     if float(combustible) <= 20.0:
       enviar_alerta_correo("combustible", combustible)
 
@@ -122,7 +143,7 @@ def recibir_datos():
 
 @app.route("/api/error", methods=["POST"])
 def recibir_error():
-  # Endpoint auxiliar para evitar errores 404/500 si la Raspberry envía alertas de cámara
+  # Endpoint auxiliar para evitar errores 404/500 si la Raspberry envía alertas
   data = request.get_json()
   return jsonify({"mensaje": "Error registrado correctamente"}), 200
 
