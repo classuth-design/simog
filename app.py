@@ -15,9 +15,9 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # Configuración de credenciales de correo (Variables de entorno o fijas)
-EMAIL_ORIGEN = os.environ.get("EMAIL_ORIGEN", "tucorreo@gmail.com")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "tu_contraseña_de_aplicacion")
-EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "destinatario@gmail.com")
+EMAIL_ORIGEN = os.environ.get("EMAIL_ORIGEN", "classuth@gmail.com")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "fgzqiyohjeasdvsr")
+EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "classuth@gmail.com")
 
 # Diccionarios para registrar el último momento en que se envió un correo por categoría
 ultimo_envio_correo = {"combustible": 0, "temperatura": 0}
