@@ -8,7 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-# Configuración de la base de datos (PostgreSQL en Render u otra URI)
+# Configuración segura de la base de datos (PostgreSQL en Render u otra URI)
 database_url = os.environ.get("DATABASE_URL", "sqlite:///telemetria.db")
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
@@ -27,13 +27,16 @@ ultimo_envio_correo = {"combustible": 0, "temperatura": 0}
 TIEMPO_ESPERA_CORREO = 60  # 60 segundos de espera entre cada correo idéntico
 
 
-# Modelo de la Base de Datos
-class Telemetria(db.Model):
+# Modelo adaptado exactamente a tu tabla existente "registros"
+class Registro(db.Model):
+    __tablename__ = "registros"
+
     id = db.Column(db.Integer, primary_key=True)
+    generador_id = db.Column(db.Integer, nullable=False, default=1)
     temperatura = db.Column(db.Float, nullable=False)
-    combustible = db.Column(db.Float, nullable=False)
-    conexion = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.DateTime, server_default=db.func.now())
+    nivel_combustible = db.Column(db.Float, nullable=False)
+    fecha = db.Column(db.String(20), nullable=False)
+    hora = db.Column(db.String(20), nullable=False)
 
 
 with app.app_context():
@@ -107,7 +110,9 @@ def recibir_datos():
 
     temperatura = data.get("temperatura")
     combustible = data.get("nivel_combustible")
-    conexion = data.get("conexion", "Estable")
+    generador_id = data.get("generador_id", 1)
+    fecha = data.get("fecha", time.strftime("%Y-%m-%d"))
+    hora = data.get("hora", time.strftime("%H:%M:%S"))
 
     if temperatura is None or combustible is None:
         return (
@@ -116,16 +121,18 @@ def recibir_datos():
         )
 
     try:
-        nuevo_registro = Telemetria(
+        nuevo_registro = Registro(
+            generador_id=int(generador_id),
             temperatura=float(temperatura),
-            combustible=float(combustible),
-            conexion=str(conexion),
+            nivel_combustible=float(combustible),
+            fecha=str(fecha),
+            hora=str(hora),
         )
         db.session.add(nuevo_registro)
         db.session.commit()
 
-        # Evaluar umbrales y disparar los correos en segundo plano de forma independiente
-        if float(combustible) <= 0.0:  # O ajusta a <= 20.0 si deseas que avise también en bajo nivel
+        # Evaluar umbrales y disparar los correos en segundo plano
+        if float(combustible) <= 0.0:
             enviar_alerta_correo("combustible", combustible)
 
         if float(temperatura) > 37.0:
@@ -145,27 +152,33 @@ def recibir_datos():
 
 @app.route("/api/error", methods=["POST"])
 def recibir_error():
-    # Endpoint auxiliar para evitar errores 404/500 si la Raspberry envía alertas
     data = request.get_json()
     return jsonify({"mensaje": "Error registrado correctamente"}), 200
 
 
-@app.route("/api/estado/<int:generador_id>")
-def obtener_estado(generador_id):
-    ultimo = Telemetria.query.order_by(Telemetria.id.desc()).first()
+@app.route("/api/estado/<int:gen_id>")
+def obtener_estado(gen_id):
+    ultimo = (
+        Registro.query.filter_by(generador_id=gen_id)
+        .order_by(Registro.id.desc())
+        .first()
+    )
+    if not ultimo:
+        ultimo = Registro.query.order_by(Registro.id.desc()).first()
+
     if not ultimo:
         return jsonify({"error": "No hay datos disponibles"}), 404
 
     return jsonify({
         "temperatura": ultimo.temperatura,
-        "nivel_combustible": ultimo.combustible,
-        "conexion": ultimo.conexion,
+        "nivel_combustible": ultimo.nivel_combustible,
+        "conexion": "Estable",
     })
 
 
 @app.route("/")
 def index():
-    ultimo = Telemetria.query.order_by(Telemetria.id.desc()).first()
+    ultimo = Registro.query.order_by(Registro.id.desc()).first()
     return render_template("index.html", telemetria=ultimo)
 
 
