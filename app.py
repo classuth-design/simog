@@ -5,6 +5,10 @@ import threading
 import time
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timedelta, timezone
+
+# Definir la zona horaria de Honduras (UTC-6)
+HONDURAS_TZ = timezone(timedelta(hours=-6))
 
 app = Flask(__name__)
 
@@ -111,8 +115,10 @@ def recibir_datos():
     temperatura = data.get("temperatura")
     combustible = data.get("nivel_combustible")
     generador_id = data.get("generador_id", 1)
-    fecha = data.get("fecha", time.strftime("%Y-%m-%d"))
-    hora = data.get("hora", time.strftime("%H:%M:%S"))
+    
+    ahora_hn = datetime.now(HONDURAS_TZ)
+    fecha = data.get("fecha", ahora_hn.strftime("%Y-%m-%d"))
+    hora = data.get("hora", ahora_hn.strftime("%H:%M:%S"))
 
     if temperatura is None or combustible is None:
         return (
