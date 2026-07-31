@@ -1,11 +1,28 @@
 from email.message import EmailMessage
 import os
 import smtplib
+import socket
 import threading
 import time
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, timezone
+
+# --- Forzar resolución DNS a IPv4 únicamente ---
+# En Render, el contenedor anuncia salida IPv6 pero esa ruta no es
+# realmente alcanzable hacia smtp.gmail.com, lo que produce fallas
+# intermitentes "[Errno 101] Network is unreachable" cuando Python elige
+# por azar la dirección IPv6 devuelta por el DNS. Forzando IPv4 en toda
+# resolución de nombres se elimina ese error de raíz sin afectar nada más
+# de la aplicación.
+_getaddrinfo_original = socket.getaddrinfo
+
+
+def _getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    return _getaddrinfo_original(host, port, socket.AF_INET, type, proto, flags)
+
+
+socket.getaddrinfo = _getaddrinfo_ipv4
 
 # Definir la zona horaria de Honduras (UTC-6)
 HONDURAS_TZ = timezone(timedelta(hours=-6))
@@ -31,6 +48,12 @@ EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "classuth@gmail.com")
 # se disparan al mismo tiempo y deben enviarse en un solo correo.
 ultimo_envio_correo = {"combustible": 0, "temperatura": 0, "combinado": 0}
 TIEMPO_ESPERA_CORREO = 60  # 60 segundos de espera entre cada correo idéntico
+
+# Lock para asegurar que nunca se abran dos conexiones SMTP a Gmail al mismo
+# tiempo (por ejemplo si combustible y temperatura se disparan en requests
+# distintos casi simultáneos). Esto reduce el riesgo de que Gmail bloquee o
+# descarte silenciosamente una conexión por actividad concurrente inusual.
+smtp_lock = threading.Lock()
 
 
 # Modelo adaptado exactamente a tu tabla existente "registros"
@@ -93,9 +116,12 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, password, destino):
         msg["To"] = destino
         msg.set_content(cuerpo)
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(origen, password)
-            smtp.send_message(msg)
+        # El lock evita que dos hilos intenten iniciar sesión en Gmail al
+        # mismo tiempo; se libera apenas termina este envío.
+        with smtp_lock:
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
+                smtp.login(origen, password)
+                smtp.send_message(msg)
         print(f"Correo de alerta ({tipo_alerta}) enviado exitosamente en segundo plano.")
     except Exception as e:
         print(f"Error al enviar el correo en segundo plano ({tipo_alerta}): {e}")
