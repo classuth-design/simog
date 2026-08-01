@@ -135,6 +135,42 @@
         let ultimaActualizacion = Date.now();
         const TIEMPO_LIMITE_MS = 10000; // 10 segundos sin datos activa alerta offline
 
+        // --- Alarma sonora ---
+        // Los navegadores bloquean el audio automático hasta que el usuario
+        // interactúa con la página al menos una vez, así que el AudioContext
+        // se crea/reanuda en el primer clic o toque.
+        let audioCtx = null;
+
+        function inicializarAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === "suspended") {
+                audioCtx.resume();
+            }
+        }
+        document.addEventListener("click", inicializarAudio);
+        document.addEventListener("touchstart", inicializarAudio);
+
+        function reproducirAlarma() {
+            if (!audioCtx || audioCtx.state !== "running") return;
+            const ahora = audioCtx.currentTime;
+            const duracionBeep = 0.15;
+            // Dos beeps cortos tipo alarma en cada ciclo
+            [0, 0.25].forEach((retraso) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = "square";
+                osc.frequency.value = 880;
+                gain.gain.setValueAtTime(0.15, ahora + retraso);
+                gain.gain.setValueAtTime(0.0001, ahora + retraso + duracionBeep);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(ahora + retraso);
+                osc.stop(ahora + retraso + duracionBeep + 0.05);
+            });
+        }
+
         function actualizarDatos() {
             fetch('/api/estado/1')
                 .then(response => response.json())
@@ -202,6 +238,16 @@
                         lblCombEstado.className = "";
                         lblCombEstado.style.color = "#28a745";
                         lblCombEstado.innerText = "Combustible Normal";
+                    }
+
+                    // --- ALARMA SONORA ---
+                    // Suena mientras cualquiera de las condiciones críticas
+                    // esté activa: sobrecalentamiento, combustible bajo,
+                    // cerca de llenarse o posible derrame.
+                    let hayAlertaCritica =
+                        temperatura > 37.0 || combustible <= 20 || combustible >= 50;
+                    if (hayAlertaCritica) {
+                        reproducirAlarma();
                     }
 
                     // --- LÓGICA DEL TERMÓMETRO Y ESTADOS DE TEMPERATURA ---
