@@ -41,6 +41,41 @@
             color: #dc3545;
             animation: parpadeo 0.8s infinite;
         }
+
+        /* --- Animación de Derrame de Combustible --- */
+        /* Cuando el tanque llega a >=99%, se activa la clase "derrame" en el
+           wrapper: se permite que el contenido se desborde (overflow: visible)
+           y se agregan dos "gotas" (::before y ::after) que caen goteando
+           desde el borde superior del tanque en un loop continuo. */
+        .tanque-wrapper.derrame {
+            overflow: visible;
+            border-color: #fd7e14;
+            animation: parpadeo-borde 0.8s infinite;
+        }
+        @keyframes parpadeo-borde {
+            0% { box-shadow: 0 0 0px rgba(253, 126, 20, 0); }
+            50% { box-shadow: 0 0 12px rgba(253, 126, 20, 0.9); }
+            100% { box-shadow: 0 0 0px rgba(253, 126, 20, 0); }
+        }
+        .tanque-wrapper.derrame::before,
+        .tanque-wrapper.derrame::after {
+            content: "";
+            position: absolute;
+            top: -2px;
+            width: 8px;
+            height: 12px;
+            background: #fd7e14;
+            border-radius: 50% 50% 50% 50% / 65% 65% 35% 35%;
+            animation: gotear 1.2s infinite ease-in;
+            z-index: 5;
+        }
+        .tanque-wrapper.derrame::before { left: -6px; animation-delay: 0s; }
+        .tanque-wrapper.derrame::after { right: -6px; animation-delay: 0.6s; }
+        @keyframes gotear {
+            0% { top: -2px; opacity: 1; }
+            70% { opacity: 1; }
+            100% { top: 45px; opacity: 0; }
+        }
     </style>
 </head>
 <body>
@@ -70,7 +105,7 @@
 
             <!-- Tanque de Combustible -->
             <div>
-                <div class="tanque-wrapper">
+                <div class="tanque-wrapper" id="tanque-wrapper">
                     <div id="tanque-nivel" class="tanque-nivel"></div>
                 </div>
                 <div class="label-component">COMBUSTIBLE</div>
@@ -124,6 +159,7 @@
                     document.getElementById("comb-val").innerText = combustible.toFixed(1) + " %";
 
                     // --- LÓGICA DEL TANQUE DE COMBUSTIBLE Y SUS ESTADOS ---
+                    let tanqueWrapper = document.getElementById("tanque-wrapper");
                     let barraTanque = document.getElementById("tanque-nivel");
                     let lblCombEstado = document.getElementById("comb-estado");
                     
@@ -131,21 +167,37 @@
                     let alturaVisual = combustible <= 0 ? 4 : combustible;
                     barraTanque.style.height = alturaVisual + "%";
 
-                    if (combustible <= 0) {
+                    if (combustible >= 99) {
+                        // Posible derrame: tanque prácticamente lleno al límite
+                        tanqueWrapper.classList.add("derrame");
+                        barraTanque.style.backgroundColor = "#fd7e14";
+                        lblCombEstado.className = "alerta-critica";
+                        lblCombEstado.innerHTML = "⚠️ Posible Derrame de Combustible ⚠️";
+                    } else if (combustible >= 90) {
+                        tanqueWrapper.classList.remove("derrame");
+                        barraTanque.style.backgroundColor = "#17a2b8";
+                        lblCombEstado.className = "";
+                        lblCombEstado.style.color = "#17a2b8";
+                        lblCombEstado.innerText = "Tanque Cerca de Llenarse";
+                    } else if (combustible <= 0) {
+                        tanqueWrapper.classList.remove("derrame");
                         barraTanque.style.backgroundColor = "#dc3545";
                         lblCombEstado.className = "alerta-critica";
                         lblCombEstado.innerHTML = "⚠️ Tanque Vacío / Reserva ⚠️";
                     } else if (combustible > 0 && combustible <= 20) {
+                        tanqueWrapper.classList.remove("derrame");
                         barraTanque.style.backgroundColor = "#dc3545"; // Rojo
                         lblCombEstado.className = "";
                         lblCombEstado.style.color = "#dc3545";
                         lblCombEstado.innerText = "Combustible Bajo";
                     } else if (combustible > 20 && combustible <= 30) {
+                        tanqueWrapper.classList.remove("derrame");
                         barraTanque.style.backgroundColor = "#fd7e14"; // Naranja
                         lblCombEstado.className = "";
                         lblCombEstado.style.color = "#fd7e14";
                         lblCombEstado.innerText = "Combustible Moderado";
                     } else {
+                        tanqueWrapper.classList.remove("derrame");
                         barraTanque.style.backgroundColor = "#28a745"; // Verde
                         lblCombEstado.className = "";
                         lblCombEstado.style.color = "#28a745";
@@ -207,6 +259,8 @@
                 document.getElementById("card-temp").style.background = "#333";
                 document.getElementById("card-comb").style.background = "#333";
                 
+                let tanqueWrapper = document.getElementById("tanque-wrapper");
+                tanqueWrapper.classList.remove("derrame");
                 let barraTanque = document.getElementById("tanque-nivel");
                 barraTanque.style.height = "0%";
                 barraTanque.style.backgroundColor = "transparent";
