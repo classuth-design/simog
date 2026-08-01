@@ -31,11 +31,41 @@ RESEND_API_URL = "https://api.resend.com/emails"
 EMAIL_ORIGEN = os.environ.get("EMAIL_ORIGEN", "Alertas SCADA <onboarding@resend.dev>")
 EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "classuth@gmail.com")
 
-# Diccionarios para registrar el último momento en que se envió un correo por categoría
-# Se agrega la clave "combinado" para controlar el caso en que ambas alertas
-# se disparan al mismo tiempo y deben enviarse en un solo correo.
-ultimo_envio_correo = {"combustible": 0, "temperatura": 0, "combinado": 0}
+# Diccionario para registrar el último momento en que se envió un correo por
+# categoría. Claves de combustible: "combustible_bajo" (<=20%),
+# "combustible_cerca_lleno" (90%-98.99%), "combustible_derrame" (>=99%).
+# Las claves "combinado_bajo", "combinado_cerca_lleno" y "combinado_derrame"
+# controlan el caso en que la alerta de combustible correspondiente coincide
+# con la de temperatura en el mismo dato recibido, para enviar un solo correo.
+ultimo_envio_correo = {
+    "temperatura": 0,
+    "combustible_bajo": 0,
+    "combustible_cerca_lleno": 0,
+    "combustible_derrame": 0,
+    "combinado_bajo": 0,
+    "combinado_cerca_lleno": 0,
+    "combinado_derrame": 0,
+}
 TIEMPO_ESPERA_CORREO = 60  # 60 segundos de espera entre cada correo idéntico
+
+# Umbrales de alerta de combustible
+UMBRAL_COMBUSTIBLE_BAJO = 20.0
+UMBRAL_COMBUSTIBLE_CERCA_LLENO = 90.0
+UMBRAL_COMBUSTIBLE_DERRAME = 99.0
+
+
+def obtener_estado_combustible(combustible):
+    """Devuelve el tipo de alerta de combustible según el porcentaje actual,
+    o None si el nivel está en rango normal (sin alerta).
+    """
+    valor = float(combustible)
+    if valor >= UMBRAL_COMBUSTIBLE_DERRAME:
+        return "derrame"
+    if valor >= UMBRAL_COMBUSTIBLE_CERCA_LLENO:
+        return "cerca_lleno"
+    if valor <= UMBRAL_COMBUSTIBLE_BAJO:
+        return "bajo"
+    return None
 
 
 # Modelo adaptado exactamente a tu tabla existente "registros"
@@ -57,7 +87,9 @@ with app.app_context():
 def _ejecutar_envio_correo(tipo_alerta, valores, origen, destino):
     """Función interna que se ejecuta en segundo plano para no congelar Flask.
 
-    tipo_alerta puede ser: "combustible", "temperatura" o "combinado".
+    tipo_alerta puede ser: "temperatura", "combustible_bajo",
+    "combustible_cerca_lleno", "combustible_derrame", o su combinación con
+    temperatura: "combinado_bajo", "combinado_cerca_lleno", "combinado_derrame".
     valores es un diccionario que puede contener "combustible" y/o "temperatura",
     según el tipo de alerta, para armar el cuerpo del correo con los valores
     tal cual se están enviando en ese momento.
@@ -66,13 +98,30 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, destino):
     bloquea el tráfico saliente por los puertos SMTP en su plan gratuito.
     """
     try:
-        if tipo_alerta == "combustible":
+        if tipo_alerta == "combustible_bajo":
             asunto = "🚨 ALERTA CRÍTICA: Nivel Muy Bajo de Combustible"
             cuerpo = (
                 "Atención Administrador,\n\nEl sistema SCADA ha detectado un nivel muy"
                 f" bajo de combustible en el Generador Principal.\nPorcentaje"
                 f" actual: {valores.get('combustible')}%\n\nPor favor, proceda a abastecer el depósito"
                 " inmediatamente."
+            )
+        elif tipo_alerta == "combustible_cerca_lleno":
+            asunto = "⛽ ALERTA: Tanque de Combustible Cerca de su Límite Máximo"
+            cuerpo = (
+                "Atención Administrador,\n\nEl sistema SCADA ha detectado que el tanque"
+                " de combustible del Generador Principal está próximo a llenarse por"
+                f" completo.\nPorcentaje actual: {valores.get('combustible')}%\n\nSe recomienda"
+                " detener el abastecimiento pronto para evitar un derrame."
+            )
+        elif tipo_alerta == "combustible_derrame":
+            asunto = "🚨 ALERTA CRÍTICA: Posible Derrame de Combustible"
+            cuerpo = (
+                "Atención Administrador,\n\nEl sistema SCADA ha detectado que el tanque"
+                " de combustible del Generador Principal está prácticamente lleno al"
+                f" límite.\nPorcentaje actual: {valores.get('combustible')}%\n\nExiste riesgo"
+                " de derrame. Por favor, detenga el abastecimiento de inmediato y"
+                " verifique el tanque."
             )
         elif tipo_alerta == "temperatura":
             asunto = "🔥 ALERTA CRÍTICA: Sobrecalentamiento de Motor"
@@ -82,7 +131,7 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, destino):
                 f" Cummins.\nTemperatura actual: {valores.get('temperatura')}°C\n\nVerifique el sistema"
                 " de enfriamiento de inmediato."
             )
-        elif tipo_alerta == "combinado":
+        elif tipo_alerta == "combinado_bajo":
             asunto = "🚨🔥 ALERTA CRÍTICA: Combustible Bajo y Sobrecalentamiento de Motor"
             cuerpo = (
                 "Atención Administrador,\n\nEl sistema SCADA ha detectado DOS condiciones"
@@ -91,6 +140,26 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, destino):
                 f"- Temperatura actual del motor: {valores.get('temperatura')}°C\n\n"
                 "Por favor, proceda a abastecer el depósito y verificar el sistema de"
                 " enfriamiento de inmediato."
+            )
+        elif tipo_alerta == "combinado_cerca_lleno":
+            asunto = "🚨🔥 ALERTA CRÍTICA: Tanque Cerca de Llenarse y Sobrecalentamiento de Motor"
+            cuerpo = (
+                "Atención Administrador,\n\nEl sistema SCADA ha detectado DOS condiciones"
+                " críticas de manera simultánea en el Generador Principal:\n\n"
+                f"- Nivel de combustible actual: {valores.get('combustible')}% (cerca de llenarse)\n"
+                f"- Temperatura actual del motor: {valores.get('temperatura')}°C\n\n"
+                "Por favor, detenga pronto el abastecimiento y verifique el sistema de"
+                " enfriamiento de inmediato."
+            )
+        elif tipo_alerta == "combinado_derrame":
+            asunto = "🚨🔥 ALERTA CRÍTICA: Posible Derrame de Combustible y Sobrecalentamiento de Motor"
+            cuerpo = (
+                "Atención Administrador,\n\nEl sistema SCADA ha detectado DOS condiciones"
+                " críticas de manera simultánea en el Generador Principal:\n\n"
+                f"- Nivel de combustible actual: {valores.get('combustible')}% (posible derrame)\n"
+                f"- Temperatura actual del motor: {valores.get('temperatura')}°C\n\n"
+                "Por favor, detenga el abastecimiento de inmediato y verifique el sistema de"
+                " enfriamiento."
             )
         else:
             print(f"Tipo de alerta desconocido: {tipo_alerta}")
@@ -131,22 +200,23 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, destino):
 
 
 def enviar_alerta_correo(tipo_alerta, valores):
-    """Controla el envío de correos respetando el cooldown de 60 segundos.
+    """Controla el envío de correos respetando el cooldown de 60 segundos
+    para cada tipo de alerta de forma independiente.
 
-    Si tipo_alerta es "combinado", se actualizan también los cooldowns
-    individuales de "combustible" y "temperatura" para evitar que, apenas
-    enviado el correo combinado, se dispare inmediatamente otro correo
-    individual para el mismo dato ya reportado. Esto evita conexiones SMTP
-    simultáneas/duplicadas hacia Gmail, que es lo que puede provocar que
-    algunos correos no lleguen.
+    Si tipo_alerta empieza con "combinado_" (por ejemplo "combinado_bajo"),
+    se actualizan también los cooldowns individuales del tipo de combustible
+    correspondiente ("combustible_bajo") y de "temperatura", para evitar que,
+    apenas enviado el correo combinado, se dispare inmediatamente otro correo
+    individual para el mismo dato ya reportado.
     """
     tiempo_actual = time.time()
 
-    if tipo_alerta == "combinado":
-        if tiempo_actual - ultimo_envio_correo["combinado"] < TIEMPO_ESPERA_CORREO:
+    if tipo_alerta.startswith("combinado_"):
+        tipo_combustible = tipo_alerta.replace("combinado_", "combustible_", 1)
+        if tiempo_actual - ultimo_envio_correo[tipo_alerta] < TIEMPO_ESPERA_CORREO:
             return
-        ultimo_envio_correo["combinado"] = tiempo_actual
-        ultimo_envio_correo["combustible"] = tiempo_actual
+        ultimo_envio_correo[tipo_alerta] = tiempo_actual
+        ultimo_envio_correo[tipo_combustible] = tiempo_actual
         ultimo_envio_correo["temperatura"] = tiempo_actual
     else:
         if tiempo_actual - ultimo_envio_correo[tipo_alerta] < TIEMPO_ESPERA_CORREO:
@@ -199,19 +269,31 @@ def recibir_datos():
         db.session.commit()
 
         # Evaluar umbrales de alerta para combustible y temperatura
-        condicion_combustible = float(combustible) <= 0.0
+        estado_combustible = obtener_estado_combustible(combustible)
         condicion_temperatura = float(temperatura) > 37.0
 
-        # Si ambas condiciones críticas ocurren en el mismo dato recibido,
-        # se envía un único correo combinado. Si solo ocurre una, se envía
-        # el correo específico de esa categoría (comportamiento original).
-        if condicion_combustible and condicion_temperatura:
+        # --- LOG TEMPORAL DE DIAGNÓSTICO ---
+        # Imprime el valor exacto recibido en cada request para confirmar el
+        # comportamiento del sensor de combustible frente a los umbrales.
+        # Se puede quitar este bloque una vez confirmado el diagnóstico.
+        print(
+            f"[DEBUG] combustible={combustible} (estado={estado_combustible}) |"
+            f" temperatura={temperatura} (alerta={condicion_temperatura})"
+        )
+
+        # Si la alerta de combustible (cualquiera de sus tres tipos) y la de
+        # temperatura ocurren en el mismo dato recibido, se envía un único
+        # correo combinado. Si solo ocurre una, se envía el correo específico
+        # de esa categoría.
+        if estado_combustible and condicion_temperatura:
             enviar_alerta_correo(
-                "combinado",
+                f"combinado_{estado_combustible}",
                 {"combustible": combustible, "temperatura": temperatura},
             )
-        elif condicion_combustible:
-            enviar_alerta_correo("combustible", {"combustible": combustible})
+        elif estado_combustible:
+            enviar_alerta_correo(
+                f"combustible_{estado_combustible}", {"combustible": combustible}
+            )
         elif condicion_temperatura:
             enviar_alerta_correo("temperatura", {"temperatura": temperatura})
 
