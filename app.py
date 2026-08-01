@@ -50,8 +50,8 @@ TIEMPO_ESPERA_CORREO = 60  # 60 segundos de espera entre cada correo idéntico
 
 # Umbrales de alerta de combustible
 UMBRAL_COMBUSTIBLE_BAJO = 20.0
-UMBRAL_COMBUSTIBLE_CERCA_LLENO = 90.0
-UMBRAL_COMBUSTIBLE_DERRAME = 99.0
+UMBRAL_COMBUSTIBLE_CERCA_LLENO = 50.0
+UMBRAL_COMBUSTIBLE_DERRAME = 59.0
 
 
 def obtener_estado_combustible(combustible):
