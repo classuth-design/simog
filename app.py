@@ -1,28 +1,10 @@
-from email.message import EmailMessage
 import os
-import smtplib
-import socket
 import threading
 import time
+import requests
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, timezone
-
-# --- Forzar resolución DNS a IPv4 únicamente ---
-# En Render, el contenedor anuncia salida IPv6 pero esa ruta no es
-# realmente alcanzable hacia smtp.gmail.com, lo que produce fallas
-# intermitentes "[Errno 101] Network is unreachable" cuando Python elige
-# por azar la dirección IPv6 devuelta por el DNS. Forzando IPv4 en toda
-# resolución de nombres se elimina ese error de raíz sin afectar nada más
-# de la aplicación.
-_getaddrinfo_original = socket.getaddrinfo
-
-
-def _getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
-    return _getaddrinfo_original(host, port, socket.AF_INET, type, proto, flags)
-
-
-socket.getaddrinfo = _getaddrinfo_ipv4
 
 # Definir la zona horaria de Honduras (UTC-6)
 HONDURAS_TZ = timezone(timedelta(hours=-6))
@@ -38,9 +20,15 @@ app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
-# Configuración de credenciales de correo
-EMAIL_ORIGEN = os.environ.get("EMAIL_ORIGEN", "classuth@gmail.com")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "fgzqiyohjeasdvsr")
+# Configuración de la API de Resend (https://resend.com) para el envío de
+# correos. Se usa una API HTTP en vez de SMTP porque Render bloquea el
+# tráfico saliente por los puertos SMTP (25, 465, 587) en su plan gratuito;
+# la API de Resend viaja por HTTPS (puerto 443), que nunca está bloqueado.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_API_URL = "https://api.resend.com/emails"
+# Mientras no se verifique un dominio propio en Resend, el remitente debe
+# ser este dominio de pruebas (sandbox) que Resend provee gratis.
+EMAIL_ORIGEN = os.environ.get("EMAIL_ORIGEN", "Alertas SCADA <onboarding@resend.dev>")
 EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "classuth@gmail.com")
 
 # Diccionarios para registrar el último momento en que se envió un correo por categoría
@@ -48,12 +36,6 @@ EMAIL_DESTINO = os.environ.get("EMAIL_DESTINO", "classuth@gmail.com")
 # se disparan al mismo tiempo y deben enviarse en un solo correo.
 ultimo_envio_correo = {"combustible": 0, "temperatura": 0, "combinado": 0}
 TIEMPO_ESPERA_CORREO = 60  # 60 segundos de espera entre cada correo idéntico
-
-# Lock para asegurar que nunca se abran dos conexiones SMTP a Gmail al mismo
-# tiempo (por ejemplo si combustible y temperatura se disparan en requests
-# distintos casi simultáneos). Esto reduce el riesgo de que Gmail bloquee o
-# descarte silenciosamente una conexión por actividad concurrente inusual.
-smtp_lock = threading.Lock()
 
 
 # Modelo adaptado exactamente a tu tabla existente "registros"
@@ -72,18 +54,20 @@ with app.app_context():
     db.create_all()
 
 
-def _ejecutar_envio_correo(tipo_alerta, valores, origen, password, destino):
+def _ejecutar_envio_correo(tipo_alerta, valores, origen, destino):
     """Función interna que se ejecuta en segundo plano para no congelar Flask.
 
     tipo_alerta puede ser: "combustible", "temperatura" o "combinado".
     valores es un diccionario que puede contener "combustible" y/o "temperatura",
     según el tipo de alerta, para armar el cuerpo del correo con los valores
     tal cual se están enviando en ese momento.
+
+    El envío se hace por la API HTTP de Resend en vez de SMTP, porque Render
+    bloquea el tráfico saliente por los puertos SMTP en su plan gratuito.
     """
     try:
-        msg = EmailMessage()
         if tipo_alerta == "combustible":
-            msg["Subject"] = "🚨 ALERTA CRÍTICA: Nivel Muy Bajo de Combustible"
+            asunto = "🚨 ALERTA CRÍTICA: Nivel Muy Bajo de Combustible"
             cuerpo = (
                 "Atención Administrador,\n\nEl sistema SCADA ha detectado un nivel muy"
                 f" bajo de combustible en el Generador Principal.\nPorcentaje"
@@ -91,7 +75,7 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, password, destino):
                 " inmediatamente."
             )
         elif tipo_alerta == "temperatura":
-            msg["Subject"] = "🔥 ALERTA CRÍTICA: Sobrecalentamiento de Motor"
+            asunto = "🔥 ALERTA CRÍTICA: Sobrecalentamiento de Motor"
             cuerpo = (
                 "Atención Administrador,\n\nEl sistema SCADA ha detectado una"
                 " condición de sobrecalentamiento en el Motor"
@@ -99,7 +83,7 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, password, destino):
                 " de enfriamiento de inmediato."
             )
         elif tipo_alerta == "combinado":
-            msg["Subject"] = "🚨🔥 ALERTA CRÍTICA: Combustible Bajo y Sobrecalentamiento de Motor"
+            asunto = "🚨🔥 ALERTA CRÍTICA: Combustible Bajo y Sobrecalentamiento de Motor"
             cuerpo = (
                 "Atención Administrador,\n\nEl sistema SCADA ha detectado DOS condiciones"
                 " críticas de manera simultánea en el Generador Principal:\n\n"
@@ -112,17 +96,36 @@ def _ejecutar_envio_correo(tipo_alerta, valores, origen, password, destino):
             print(f"Tipo de alerta desconocido: {tipo_alerta}")
             return
 
-        msg["From"] = origen
-        msg["To"] = destino
-        msg.set_content(cuerpo)
+        if not RESEND_API_KEY:
+            print(
+                "Error al enviar el correo en segundo plano"
+                f" ({tipo_alerta}): falta configurar la variable de entorno"
+                " RESEND_API_KEY en Render."
+            )
+            return
 
-        # El lock evita que dos hilos intenten iniciar sesión en Gmail al
-        # mismo tiempo; se libera apenas termina este envío.
-        with smtp_lock:
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as smtp:
-                smtp.login(origen, password)
-                smtp.send_message(msg)
-        print(f"Correo de alerta ({tipo_alerta}) enviado exitosamente en segundo plano.")
+        payload = {
+            "from": origen,
+            "to": [destino],
+            "subject": asunto,
+            "text": cuerpo,
+        }
+        headers = {
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        respuesta = requests.post(
+            RESEND_API_URL, json=payload, headers=headers, timeout=20
+        )
+
+        if respuesta.status_code in (200, 201):
+            print(f"Correo de alerta ({tipo_alerta}) enviado exitosamente en segundo plano.")
+        else:
+            print(
+                f"Error al enviar el correo en segundo plano ({tipo_alerta}):"
+                f" status {respuesta.status_code} - {respuesta.text}"
+            )
     except Exception as e:
         print(f"Error al enviar el correo en segundo plano ({tipo_alerta}): {e}")
 
@@ -157,7 +160,6 @@ def enviar_alerta_correo(tipo_alerta, valores):
             tipo_alerta,
             valores,
             EMAIL_ORIGEN,
-            EMAIL_PASSWORD,
             EMAIL_DESTINO,
         ),
     )
