@@ -167,13 +167,13 @@
                     let alturaVisual = combustible <= 0 ? 4 : combustible;
                     barraTanque.style.height = alturaVisual + "%";
 
-                    if (combustible >= 99) {
+                    if (combustible >= 59) {
                         // Posible derrame: tanque prácticamente lleno al límite
                         tanqueWrapper.classList.add("derrame");
                         barraTanque.style.backgroundColor = "#fd7e14";
                         lblCombEstado.className = "alerta-critica";
                         lblCombEstado.innerHTML = "⚠️ Posible Derrame de Combustible ⚠️";
-                    } else if (combustible >= 90) {
+                    } else if (combustible >= 50) {
                         tanqueWrapper.classList.remove("derrame");
                         barraTanque.style.backgroundColor = "#17a2b8";
                         lblCombEstado.className = "";
